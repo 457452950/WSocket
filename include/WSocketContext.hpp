@@ -1,4 +1,4 @@
-﻿#pragma once
+#pragma once
 #ifndef WSOCKET__WSOCKET_CONTEXT_HPP
 #define WSOCKET__WSOCKET_CONTEXT_HPP
 
@@ -360,7 +360,7 @@ private:
         size_t total_len = 0;
         for(auto &frame : frames) {
             assert(frame.header.Length() == frame.data.size);
-            total_len += frame.data.size;
+            total_len += (frame.header.HeaderLength() + frame.data.size);
         }
         std::unique_ptr<uint8_t[]> data(new uint8_t[total_len]);
         size_t                     pos = 0;

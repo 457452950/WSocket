@@ -1,4 +1,4 @@
-﻿#pragma once
+#pragma once
 #ifndef WSOCKET__ASIO_KEEPALIVE_MANAGER_HPP
 #define WSOCKET__ASIO_KEEPALIVE_MANAGER_HPP
 
@@ -20,32 +20,32 @@ public:
     static constexpr int64_t EXPIRED_TIME_MS_DEFAULT = EXPIRED_TIME_S_DEFAULT * 1000;
     static constexpr int64_t TIMEOUT_MS_DEFAULT      = 3 * EXPIRED_TIME_MS_DEFAULT;
 
-    // 设置过期时间（秒）
+    // Set expiration time (seconds)
     void SetExpiredTimeSec(int64_t sec) {
         expired_time_ms_ = std::chrono::milliseconds(sec * 1000);
         timeout_ms_      = 3 * expired_time_ms_;
     }
 
-    // 设置过期时间（毫秒）
+    // Set expiration time (milliseconds)
     void SetExpiredTimeMsec(int64_t msec) {
         expired_time_ms_ = std::chrono::milliseconds(msec);
         timeout_ms_      = 3 * expired_time_ms_;
     }
 
-    // 启动或刷新定时器
+    // Start or refresh timer
     void Start() { Flush(); }
 
-    // 刷新定时器，重新开始计时
+    // Refresh timer, restart counting
     void Flush() {
-        // 取消之前的定时器
+        // Cancel previous timers
         expired_timer_.cancel();
         timeout_timer_.cancel();
 
-        // 设置新的过期定时器
+        // Set new expiration timer
         expired_timer_.expires_after(expired_time_ms_);
         expired_timer_.async_wait([this](std::error_code ec) { OnExpiredTimerTimeout(ec); });
 
-        // 设置新的超时定时器
+        // Set new timeout timer
         timeout_timer_.expires_after(timeout_ms_);
         timeout_timer_.async_wait([this](std::error_code ec) { OnTimeoutTimerTimeout(ec); });
     }
@@ -64,26 +64,24 @@ public:
     void ResetListener(Listener *listener) { listener_ = listener; }
 
 private:
-    // 过期定时器超时处理
+    // Expiration timer timeout handler
     void OnExpiredTimerTimeout(std::error_code ec) {
         if(ec == asio::error::operation_aborted) {
-            // 定时器被取消，不需要处理
             return;
         }
 
-        // 通知监听器保活已过期
+        // Notify listener that keep-alive has expired
         if(listener_) {
             listener_->OnKeepAliveExpired(ec);
         }
     }
 
-    // 超时定时器超时处理
+    // Timeout timer timeout handler
     void OnTimeoutTimerTimeout(std::error_code ec) {
         if(ec == asio::error::operation_aborted) {
-            // 定时器被取消，不需要处理
             return;
         }
-        // 通知监听器已超时
+        // Notify listener of timeout
         if(listener_) {
             listener_->OnKeepAliveTimeout(ec);
         }
@@ -91,10 +89,10 @@ private:
 
 
 private:
-    asio::steady_timer        expired_timer_;   // 保活过期定时器
-    asio::steady_timer        timeout_timer_;   // 连接超时定时器
-    std::chrono::milliseconds expired_time_ms_; // 保活过期时间
-    std::chrono::milliseconds timeout_ms_;      // 连接超时时间
+    asio::steady_timer        expired_timer_;   // Keep-alive expiration timer
+    asio::steady_timer        timeout_timer_;   // Connection timeout timer
+    std::chrono::milliseconds expired_time_ms_; // Keep-alive expiration time
+    std::chrono::milliseconds timeout_ms_;      // Connection timeout time
     Listener                 *listener_{nullptr};
 };
 
@@ -102,4 +100,4 @@ private:
 
 #endif
 
-#endif // WSOCKET__ASIO_KEEPALIVEMANAGER_HPP
+#endif // WSOCKET__ASIO_KEEPALIVE_MANAGER_HPP

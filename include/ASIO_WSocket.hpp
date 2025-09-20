@@ -1,4 +1,4 @@
-﻿#pragma once
+#pragma once
 #ifndef WSOCKET__ASIO_WSOCKET_HPP
 #define WSOCKET__ASIO_WSOCKET_HPP
 
@@ -30,12 +30,12 @@ protected:
     }
 
 private:
-    // 初始化公共设置
+    // Initialize common settings
     void Initialize() {
         keep_alive_manager_.ResetListener(this);
         wsocket_context_.AddListener(this);
 
-        // 设置发送处理器
+        // Set send handler
         wsocket_context_.ResetSendHandler([this](Buffer buffer) {
             asio::error_code ec;
             this->socket_.send(asio::buffer(buffer.buf, buffer.size), 0, ec);
@@ -60,7 +60,7 @@ public:
 
         if(socket_.is_open()) {
             asio::error_code ec;
-            std::ignore = socket_.close(ec); // 忽略关闭错误
+            std::ignore = socket_.close(ec); // Ignore close errors
         }
     }
 
@@ -69,13 +69,13 @@ public:
         keep_alive_manager_.Start();
     }
 
-    // 设置保活过期时间
+    // Set keep-alive expiration time
     void SetKeepAliveExpiredTime(int64_t expire_ms) {
         keep_alive_manager_.SetExpiredTimeMsec(expire_ms);
         keep_alive_manager_.Flush();
     }
 
-    // 发起TCP连接并进行WSocket握手
+    // Initiate connection and perform WSocket handshake
     void Handshake(const endpoint_type &endpoint) {
         auto _this = this->shared_from_this();
         socket_.async_connect(endpoint, [=](asio::error_code ec) {
@@ -83,26 +83,26 @@ public:
                 this->OnError(ec);
                 return;
             }
-            _this->OnTcpConnected();
+            _this->OnSocketConnected();
         });
     }
 
-    // 发送Ping帧
+    // Send Ping frame
     void Ping() { this->wsocket_context_.Ping(); }
 
-    // 发送Pong帧
+    // Send Pong frame
     void Pong() { this->wsocket_context_.Pong(); }
 
-    // 发送文本消息
+    // Send text message
     void Text(std::string_view text, bool finish = true) { this->wsocket_context_.SendText(text, finish); }
 
-    // 发送二进制消息
+    // Send binary message
     void Binary(Buffer buffer, bool finish = true) { this->wsocket_context_.SendBinary(buffer, finish); }
 
-    // 关闭连接（使用标准关闭码）
+    // Close connection (using standard close code)
     void Close(CloseCode code) { this->wsocket_context_.Close(code); }
 
-    // 关闭连接（使用自定义关闭码和原因）
+    // Close connection (using custom close code and reason)
     void Close(int16_t code, const std::string &reason) { this->wsocket_context_.Close(code, reason); }
 
 protected:
@@ -138,18 +138,18 @@ protected:
     //============ KeepAliveManager::Listener end ============//
 
 private:
-    // TCP连接成功回调
-    void OnTcpConnected() {
+    // connection success callback
+    void OnSocketConnected() {
         this->Start();
         this->wsocket_context_.Handshake();
     }
-    // 数据接收完成回调
+    // Data receive completion callback
     void OnReceived(std::size_t bytes_transferred) {
         this->wsocket_context_.CommitWrite(bytes_transferred);
         this->StartRecv();
     }
 
-    // 开始异步接收数据
+    // Start asynchronous data reception
     void StartRecv() {
         auto _this = this->shared_from_this();
         auto buf   = wsocket_context_.PrepareWrite();

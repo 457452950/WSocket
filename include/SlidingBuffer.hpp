@@ -1,8 +1,9 @@
-﻿#pragma once
+#pragma once
 #ifndef WSOCKET__SLIDINGBUFFER_HPP
 #define WSOCKET__SLIDINGBUFFER_HPP
 
 #include <cassert>
+#include <cstring> // memcpy/memmove
 
 #include <memory>
 
@@ -23,6 +24,7 @@ public:
     SlidingBuffer(const SlidingBuffer &)            = delete;
     SlidingBuffer &operator=(const SlidingBuffer &) = delete;
 
+    // Adjust buffer size, preserving existing data
     void Resize(size_t len) {
         if(buffer_used_ > len) {
             len = buffer_used_;
@@ -31,7 +33,7 @@ public:
         std::unique_ptr<uint8_t[]> tmp = std::make_unique<uint8_t[]>(len);
 
         if(buffer_ && buffer_used_ > 0) {
-            memcpy(tmp.get(), buffer_.get(), buffer_used_);
+            std::memcpy(tmp.get(), buffer_.get(), buffer_used_);
         }
 
         std::swap(this->buffer_, tmp);

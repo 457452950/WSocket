@@ -1,4 +1,4 @@
-﻿#pragma once
+#pragma once
 #ifndef WSOCKET__ERROR_H
 #define WSOCKET__ERROR_H
 

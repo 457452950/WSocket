@@ -1,12 +1,8 @@
-﻿#pragma once
+#pragma once
 #ifndef WSOCKET__FRAME_HPP
 #define WSOCKET__FRAME_HPP
 
 #include <cstdint>
-
-#define WSOCKET_SET_BIT(value, bit) (value |= (1 << bit))
-#define WSOCKET_CLEAR_BIT(value, bit) (value &= ~(1 << bit))
-#define WSOCKET_GET_BIT(value, bit) (value & (1 << bit))
 
 namespace wsocket {
 
@@ -24,11 +20,11 @@ namespace wsocket {
  * - Second byte: Basic payload length or extended length indicator
  */
 struct BasicHeader {
-    uint8_t opcode : 4; // 低4位存储opcode
-    uint8_t rsv3 : 1;   // 第4位
-    uint8_t rsv2 : 1;   // 第5位
-    uint8_t rsv1 : 1;   // 第6位
-    uint8_t fin : 1;    // 最高位(第7位)
+    uint8_t opcode : 4; // Low 4 bits store opcode
+    uint8_t rsv3 : 1;   // Bit 4
+    uint8_t rsv2 : 1;   // Bit 5
+    uint8_t rsv1 : 1;   // Bit 6
+    uint8_t fin : 1;    // Highest bit (bit 7)
 
     uint8_t payload_length = 0;
 };
@@ -100,7 +96,7 @@ public:
             // 2 + 2 bytes
             return basic_len + sizeof(uint16_t);
         } else {
-            // 2 + 4 bytes
+            // 2 + 8 bytes
             return basic_len + sizeof(uint64_t);
         }
     }
