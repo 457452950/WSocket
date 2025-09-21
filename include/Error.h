@@ -13,11 +13,15 @@ enum Error : int {
     ErrorReasonTooLong = 2,
     UnexpectedError    = 3,
     KeepAliveTimeout   = 4,
+    CompressError      = 5,
+    DecompressError    = 6,
+    PayloadTooLong     = 7,
+    MessageEmpty       = 8,
 };
 
 class ErrorCategory : public std::error_category {
 public:
-    const char *name() const noexcept override { return "WSocket::ErrorCategory"; }
+    const char *name() const noexcept override { return "WSocket"; }
 
     std::string message(int ev) const override {
         switch(static_cast<Error>(ev)) {
@@ -31,6 +35,14 @@ public:
             return "UnexpectedError";
         case KeepAliveTimeout:
             return "KeepAliveTimeout";
+        case CompressError:
+            return "CompressError";
+        case DecompressError:
+            return "DecompressError";
+        case PayloadTooLong:
+            return "PayloadTooLong";
+        case MessageEmpty:
+            return "MessageEmpty";
         }
 
         return "Unknown error";

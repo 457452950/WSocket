@@ -260,7 +260,10 @@ class Client : public wsocket::WSocketContext::Listener {
 public:
     void OnError(std::error_code code) override {}
 
-    void OnConnected() override { std::cout << "OnConnected" << std::endl; }
+    wsocket::CompressType OnHandshake(const std::vector<wsocket::CompressType> &surpported_compress_type) override {
+        std::cout << "OnHandshake " << std::endl;
+        return wsocket::CompressType::None;
+    }
     void OnClose(int16_t code, const std::string &reason) override {
         std::cout << "OnClose: " << code << ":" << reason << std::endl;
     }
@@ -281,9 +284,9 @@ void test_WSocketContext() {
     wsocket::WSocketContext ctx2;
 
     Client client1;
-    ctx1.AddListener(&client1);
+    ctx1.ResetListener(&client1);
     Client client2;
-    ctx2.AddListener(&client2);
+    ctx2.ResetListener(&client2);
 
     ctx1.ResetSendHandler([&](wsocket::Buffer buffer) { ctx2.Feed(buffer); });
     ctx2.ResetSendHandler([&](wsocket::Buffer buffer) { ctx1.Feed(buffer); });
@@ -307,7 +310,7 @@ void test_WSocketContext() {
     ctx2.Close(wsocket::CloseCode::CLOSE_NORMAL);
     std::cout << "================== test_WSocketContext ==================" << std::endl;
 }
-
+#ifdef WITH_ASIO
 class TestWSocket : public wsocket::WSocket {
 protected:
     explicit TestWSocket(const asio::any_io_executor &io_executor) : wsocket::WSocket(io_executor) {}
@@ -324,8 +327,11 @@ public:
     ~TestWSocket() override {}
 
 private:
-    void OnError(std::error_code code) override { std::cout << "OnError: " << code << std::endl; }
-    void OnConnected() override { std::cout << "OnConnected" << std::endl; }
+    void                  OnError(std::error_code code) override { std::cout << "OnError: " << code << std::endl; }
+    wsocket::CompressType OnHandshake(const std::vector<wsocket::CompressType> &surpported_compress_type) override {
+        std::cout << "OnConnected" << std::endl;
+        return wsocket::CompressType::None;
+    }
     void OnClose(int16_t code, const std::string &reason) override {
         std::cout << "OnClose: " << code << ":" << reason << std::endl;
     }
@@ -367,6 +373,7 @@ void test_asio_wsocket() {
     io_executor.run();
     std::cout << "================== test_asio_wsocket ==================" << std::endl;
 }
+#endif
 
 #ifdef ASIO_HAS_LOCAL_SOCKETS
 class TestUnixWSocket : public wsocket::UnixWSocket {
@@ -388,7 +395,10 @@ private:
     void OnError(std::error_code code) override {
         std::cout << "OnError: " << code << ":" << code.message() << std::endl;
     }
-    void OnConnected() override { std::cout << "OnConnected" << std::endl; }
+    wsocket::CompressType OnHandshake(const std::vector<wsocket::CompressType> &surpported_compress_type) override {
+        std::cout << "OnConnected" << std::endl;
+        return wsocket::CompressType::None;
+    }
     void OnClose(int16_t code, const std::string &reason) override {
         std::cout << "OnClose: " << code << ":" << reason << std::endl;
     }
@@ -447,6 +457,122 @@ void test_asio_unix_wsocket() {
 }
 #endif
 
+#ifdef WITH_ZSTD
+class TestZstdWSocket : public wsocket::WSocket {
+protected:
+    explicit TestZstdWSocket(const asio::any_io_executor &io_executor) : wsocket::WSocket(io_executor) {}
+    explicit TestZstdWSocket(asio::ip::tcp::socket &&socket) : wsocket::WSocket(std::move(socket)) {}
+
+public:
+    static std::shared_ptr<TestZstdWSocket> Create(asio::any_io_executor io_executor) {
+        return std::shared_ptr<TestZstdWSocket>(new TestZstdWSocket(std::move(io_executor)));
+    }
+    static std::shared_ptr<TestZstdWSocket> Create(asio::ip::tcp::socket &&socket) {
+        return std::shared_ptr<TestZstdWSocket>(new TestZstdWSocket(std::move(socket)));
+    }
+
+    ~TestZstdWSocket() override {}
+
+    inline static const char test_text[] =
+            "这是一段用于测试压缩算法的文本内容。它包含了一些重复的模式，比如：测试测试、压缩压缩、算法算法。\n"
+            "这些重复的模式应该能够被压缩算法有效地处理，从而展现出压缩效果。\n"
+            "同时，文本中也包含了一些随机性内容，比如数字: 12345, 67890, 24680, 13579。\n"
+            "还有各种标点符号！，？；：‘’\"\"（）【】《》。\n"
+            "这段文本足够长，以确保压缩算法有足够的数据来工作，而不会因为头部开销而导致压缩后变大。\n"
+            "希望这段文本能帮助您测试Zstd压缩库的性能和效果。\n"
+            "您可以多次复制这段文本以增加长度，从而更好地测试压缩率。\n"
+            "这是第一部分的结束。\n\n"
+            "现在是第二部分的内容，添加更多文本以提高压缩测试的效果。\n"
+            "重复的词语可以帮助压缩算法找到模式：数据数据、测试测试、压缩压缩。\n"
+            "中文文本中的重复模式：中文中文、文本文本、压缩压缩、算法算法。\n"
+            "添加一些技术术语：Zstandard压缩算法、无损数据压缩、LZ77算法、霍夫曼编码。\n"
+            "再添加一些英文内容以增加多样性：This is some English text for testing compression algorithms.\n"
+            "More English content: Zstd is a fast lossless compression algorithm, targeting real-time "
+            "compression scenarios.\n"
+            "最后再添加一些数字序列：111222333444555, 999888777666555, 12345678901234567890。\n"
+            "这是最后一行，测试文本结束了。希望这段文本足够长，能够有效地测试压缩算法的性能。"
+            "这是一段用于测试Zstd压缩算法的文本内容。它包含了许多重复的模式和词语，比如：测试测试、压缩压缩、算法算法、"
+            "数据数据、性能性能。\n"
+            "重复的词语可以帮助压缩算法找到模式：测试测试、压缩压缩、算法算法、数据数据、性能性能、编码编码、解码解码、"
+            "传输传输。\n"
+            "Zstd压缩算法是一种快速的无损数据压缩算法，由Facebook开发并开源。Zstd压缩算法是一种快速的无损数据压缩算法。"
+            "\n"
+            "重复的句子结构：这是一段测试文本，这是一段测试文本，这是一段测试文本。压缩算法压缩算法压缩算法。\n"
+            "数字序列重复：1234567890, 1234567890, 1234567890, 1234567890, 1234567890, 1234567890。\n"
+            "长重复模式：ABCDEFGHIJKLMNOPQRSTUVWXYZ, ABCDEFGHIJKLMNOPQRSTUVWXYZ, ABCDEFGHIJKLMNOPQRSTUVWXYZ。\n"
+            "中文重复：中文中文中文中文中文中文中文中文中文中文中文中文中文中文中文中文中文中文中文中文。\n"
+            "技术术语重复：Zstandard压缩算法、无损数据压缩、LZ77算法、霍夫曼编码、熵编码、字典压缩。\n"
+            "Zstandard压缩算法、无损数据压缩、LZ77算法、霍夫曼编码、熵编码、字典压缩。\n"
+            "更多重复：测试压缩算法、测试压缩算法、测试压缩算法、测试压缩算法、测试压缩算法、测试压缩算法。\n"
+            "长文本有助于提高压缩率，长文本有助于提高压缩率，长文本有助于提高压缩率，长文本有助于提高压缩率。\n"
+            "最后一段包含大量重复词语：压缩压缩压缩压缩压缩压缩压缩压缩压缩压缩压缩压缩压缩压缩压缩压缩。\n"
+            "算法算法算法算法算法算法算法算法算法算法算法算法算法算法算法算法算法算法算法算法算法算法。\n"
+            "数据数据数据数据数据数据数据数据数据数据数据数据数据数据数据数据数据数据数据数据数据数据。\n"
+            "性能性能性能性能性能性能性能性能性能性能性能性能性能性能性能性能性能性能性能性能性能性能。\n"
+            "测试测试测试测试测试测试测试测试测试测试测试测试测试测试测试测试测试测试测试测试测试测试。\n"
+            "结束结束结束结束结束结束结束结束结束结束结束结束结束结束结束结束结束结束结束结束结束结束。";
+
+private:
+    void OnError(std::error_code code) override {
+        std::cout << "OnError: " << code << " " << code.message() << std::endl;
+    }
+    wsocket::CompressType OnHandshake(const std::vector<wsocket::CompressType> &supported_compress_type) override {
+        std::cout << "OnHandshake, supported compress type: " << supported_compress_type.size();
+        for(auto type : supported_compress_type) {
+            std::cout << " " << int(type);
+        }
+        std::cout << std::endl;
+
+        if(supported_compress_type.empty()) {
+            std::cerr << "no supported compress type" << std::endl;
+            return wsocket::CompressType::None;
+        }
+
+        return supported_compress_type[0];
+    }
+    void OnClose(int16_t code, const std::string &reason) override {
+        std::cout << "OnClose: " << code << ":" << reason << std::endl;
+    }
+    void OnPing() override {
+        std::cout << "OnPing" << std::endl;
+        wsocket::WSocket::OnPing();
+        this->Text(test_text);
+    }
+    void OnPong() override { std::cout << "OnPong" << std::endl; }
+    void OnText(std::string_view text, bool finish) override { std::cout << "OnText:" << text << std::endl; }
+    void OnBinary(wsocket::Buffer buffer, bool finish) override {
+        std::cout << "OnBinary:" << std::string(reinterpret_cast<char *>(buffer.buf), buffer.size) << std::endl;
+    }
+};
+
+void test_asio_wsocket_zstd() {
+    std::cout << "================== test_asio_wsocket_zstd ==================" << std::endl;
+    asio::io_context io_executor;
+
+    using tcp = asio::ip::tcp;
+    tcp::acceptor server(io_executor, asio::ip::tcp::v4());
+    server.bind(tcp::endpoint(asio::ip::tcp::v4(), 12000));
+    server.listen();
+    server.async_accept([&](asio::error_code ec, asio::ip::tcp::socket peer) {
+        if(ec) {
+            std::cout << ec.message() << std::endl;
+            return;
+        }
+
+        std::cout << peer.remote_endpoint().address().to_string() << ":" << peer.remote_endpoint().port() << std::endl;
+        auto cli = TestZstdWSocket::Create(std::move(peer));
+        cli->Start();
+    });
+
+
+    auto client = TestZstdWSocket::Create(io_executor.get_executor());
+    client->Handshake(asio::ip::tcp::endpoint(asio::ip::make_address_v4("127.0.0.1"), 12000));
+
+    io_executor.run();
+    std::cout << "================== test_asio_wsocket_zstd ==================" << std::endl;
+}
+#endif
+
 int main() {
     std::cout << "================== start ==================" << std::endl;
     try {
@@ -455,7 +581,8 @@ int main() {
         test_SlidingBuffer();
         test_WSocketContext();
         // test_asio_wsocket();
-        test_asio_unix_wsocket();
+        // test_asio_unix_wsocket();
+        test_asio_wsocket_zstd();
     } catch(const std::exception &e) {
         std::cout << "exception: " << e.what() << std::endl;
     }

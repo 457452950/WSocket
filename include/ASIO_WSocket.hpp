@@ -33,7 +33,7 @@ private:
     // Initialize common settings
     void Initialize() {
         keep_alive_manager_.ResetListener(this);
-        wsocket_context_.AddListener(this);
+        wsocket_context_.ResetListener(this);
 
         // Set send handler
         wsocket_context_.ResetSendHandler([this](Buffer buffer) {
@@ -54,7 +54,7 @@ public:
     }
 
     ~WSocketBase() override {
-        wsocket_context_.DelListener(this);
+        wsocket_context_.ResetListener(nullptr);
         wsocket_context_.ResetSendHandler(nullptr);
         keep_alive_manager_.ResetListener(nullptr);
 
@@ -107,8 +107,10 @@ public:
 
 protected:
     //============ WSocketContext::Listener start ============//
-    void OnError(std::error_code code) override {}
-    void OnConnected() override {}
+    void         OnError(std::error_code code) override {}
+    CompressType OnHandshake(const std::vector<CompressType> &supported_compress_type) override {
+        return CompressType::None;
+    }
     void OnClose(int16_t code, const std::string &reason) override {}
     void OnPing() override { this->wsocket_context_.Pong(); }
     void OnPong() override {}

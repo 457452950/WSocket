@@ -26,6 +26,8 @@
 #include "SlidingBuffer.hpp"
 #include "Error.h"
 #include "Frame.hpp"
+#include "compress/Compress.hpp"
+#include "compress/CompressManager.hpp"
 
 
 namespace wsocket {
@@ -120,16 +122,32 @@ public:
 
     void Handshake() {
         assert(state_ == State::Init);
-        this->state_ = State::Connecting;
+        this->state_               = State::Connecting;
+        auto supported_compressors = CompressManager::Instance().GetSupportedCompressors();
 
         // send system handshake frame
         Frame frame;
         frame.header.Finished(true);
         frame.header.Type(FrameHeader::System);
-        frame.header.Length(5);
+        frame.header.Length(supported_compressors.size());
 
-        frame.data.buf  = reinterpret_cast<uint8_t *>(const_cast<char *>("hello"));
-        frame.data.size = 5;
+        frame.data.buf  = reinterpret_cast<uint8_t *>(const_cast<char *>(supported_compressors.c_str()));
+        frame.data.size = supported_compressors.size();
+        this->SendFrame(frame);
+    }
+    void Handshake(const std::vector<CompressType> &compressors) {
+        assert(state_ == State::Init);
+        this->state_               = State::Connecting;
+        auto supported_compressors = CompressManager::Instance().GetSupportedCompressors(compressors);
+
+        // send system handshake frame
+        Frame frame;
+        frame.header.Finished(true);
+        frame.header.Type(FrameHeader::System);
+        frame.header.Length(supported_compressors.size());
+
+        frame.data.buf  = reinterpret_cast<uint8_t *>(const_cast<char *>(supported_compressors.c_str()));
+        frame.data.size = supported_compressors.size();
         this->SendFrame(frame);
     }
 
@@ -164,17 +182,40 @@ public:
     void SendText(std::string_view text, bool finish = true) {
         assert(state_ == State::Connected);
 
+        if(text.empty()) {
+            this->NotifyError(Error::MessageEmpty);
+            return;
+        }
+
+        Buffer buffer;
+        buffer.buf  = reinterpret_cast<uint8_t *>(const_cast<char *>(text.data()));
+        buffer.size = text.size();
+
+        if(this->compress_context_) {
+            buffer = this->compress_context_->Compress(buffer);
+            if(buffer.buf == nullptr || buffer.size == 0) {
+                this->NotifyError(Error::CompressError);
+                Close(CloseCode::INTERNAL_ERROR);
+                return;
+            }
+        }
+
         Frame frame;
         frame.header.Type(FrameHeader::Text);
-        frame.header.Length(text.size());
+        frame.header.Length(buffer.size);
         frame.header.Finished(finish);
 
-        frame.data.buf  = reinterpret_cast<uint8_t *>(const_cast<char *>(text.data()));
-        frame.data.size = text.size();
+        frame.data = buffer;
+
         this->SendFrame(frame);
     }
     void SendBinary(Buffer buffer, bool finish = true) {
         assert(state_ == State::Connected);
+
+        if(buffer.size == 0) {
+            this->NotifyError(Error::MessageEmpty);
+            return;
+        }
 
         Frame frame;
         frame.header.Type(FrameHeader::Binary);
@@ -239,11 +280,20 @@ private:
     }
 
     void OnSystemFrame(const Frame &frame) {
+        auto str            = std::string(reinterpret_cast<const char *>(frame.data.buf), frame.data.size);
+        auto compress_types = CompressManager::Instance().GetSupportedCompressTypes(str);
+
+        auto type               = NotifyHandshake(compress_types);
+        this->compress_context_ = CompressManager::Instance().GetCompressContext(type);
+
         if(this->state_ == State::Init) {
-            this->Handshake();
+            if(this->compress_context_) {
+                this->Handshake({this->compress_context_->Type()});
+            } else {
+                this->Handshake({CompressType::None});
+            }
         }
         this->state_ = State::Connected;
-        NotifyConnected();
     }
 
     void OnTextFrame(const Frame &frame) { this->NotifyText(frame); }
@@ -286,7 +336,9 @@ public:
 
         virtual void OnError(std::error_code code) {}
 
-        virtual void OnConnected() {}
+        virtual CompressType OnHandshake(const std::vector<CompressType> &supported_compress_type) {
+            return CompressType::None;
+        }
         virtual void OnClose(int16_t code, const std::string &reason) {}
         virtual void OnPing() {}
         virtual void OnPong() {}
@@ -294,50 +346,68 @@ public:
         virtual void OnText(std::string_view text, bool finish) {}
         virtual void OnBinary(Buffer buffer, bool finish) {}
     };
-    void AddListener(Listener *listener) { listeners_.insert(listener); }
-    void DelListener(Listener *listener) { listeners_.erase(listener); }
+    void ResetListener(Listener *listener) { listener_ = listener; }
 
     void NotifyError(std::error_code code) {
-        for(auto listener : listeners_) {
-            listener->OnError(code);
+        if(listener_) {
+            listener_->OnError(code);
         }
     }
-    void NotifyConnected() {
-        for(auto listener : listeners_) {
-            listener->OnConnected();
+    CompressType NotifyHandshake(const std::vector<CompressType> &supported_compress_type) {
+        if(listener_) {
+            return listener_->OnHandshake(supported_compress_type);
         }
+        return CompressType::None;
     }
     void NotifyClose(int16_t code, const std::string &reason) {
-        for(auto listener : listeners_) {
-            listener->OnClose(code, reason);
+        if(listener_) {
+            listener_->OnClose(code, reason);
         }
     }
     void NotifyPing() {
-        for(auto listener : listeners_) {
-            listener->OnPing();
+        if(listener_) {
+            listener_->OnPing();
         }
     }
     void NotifyPong() {
-        for(auto listener : listeners_) {
-            listener->OnPong();
+        if(listener_) {
+            listener_->OnPong();
         }
     }
     void NotifyText(Frame frame) {
-        for(auto listener : listeners_) {
-            listener->OnText(std::string_view(reinterpret_cast<char *>(frame.data.buf), frame.data.size),
-                             frame.header.Finished());
+        auto buf = frame.data;
+
+        if(this->compress_context_) {
+            buf = this->compress_context_->Decompress(buf);
+            if(buf.buf == nullptr || buf.size == 0) {
+                this->NotifyError(Error::DecompressError);
+                return;
+            }
+        }
+
+        if(listener_) {
+            listener_->OnText(std::string_view(reinterpret_cast<char *>(buf.buf), buf.size), frame.header.Finished());
         }
     }
     void NotifyBinary(Frame frame) {
-        for(auto listener : listeners_) {
-            listener->OnBinary(frame.data, frame.header.Finished());
+        auto buf = frame.data;
+
+        if(this->compress_context_) {
+            buf = this->compress_context_->Decompress(buf);
+            if(buf.buf == nullptr || buf.size == 0) {
+                this->NotifyError(Error::DecompressError);
+                return;
+            }
+        }
+
+        if(listener_) {
+            listener_->OnBinary(buf, frame.header.Finished());
         }
     }
 
 
 private:
-    std::unordered_set<Listener *> listeners_;
-
+    Listener *listener_{nullptr};
 
 public:
     using SendHandler = std::function<void(const Buffer &data)>;
@@ -383,7 +453,8 @@ private:
     }
 
 private:
-    SendHandler send_handler_;
+    SendHandler                      send_handler_;
+    std::shared_ptr<CompressContext> compress_context_;
 };
 
 } // namespace wsocket
